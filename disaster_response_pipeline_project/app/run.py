@@ -11,8 +11,10 @@ from plotly.graph_objs import Bar
 from sklearn.externals import joblib
 from sqlalchemy import create_engine
 
+import os
 
 app = Flask(__name__)
+
 
 def tokenize(text):
     tokens = word_tokenize(text)
@@ -25,24 +27,43 @@ def tokenize(text):
 
     return clean_tokens
 
-# load data
-engine = create_engine('sqlite:///../data/YourDatabaseName.db')
-df = pd.read_sql_table('YourTableName', engine)
 
-# load model
-model = joblib.load("../models/your_model_name.pkl")
+def load_data(path, ending):
+    '''
+    loads the first file with the given ending at the given path
+
+    :param path: string - path to the data
+    :param ending: string - ending of the file for the search
+    :return: string - filename
+    '''
+
+    files = os.listdir(path)
+    for file in files:
+        if file.endswith(ending):
+            return str(file)
+
+
+# load data by taking the first .db file there is
+engine = create_engine('sqlite:///../data/' + load_data("../data", ".db"))
+# there should be only one table so this loads the first table in the file
+df = pd.read_sql_table(engine.table_names()[0], engine)
+
+# load model by taking the first .pkl file there is
+model = joblib.load("../models/" + load_data("../models", ".pkl"))
 
 
 # index webpage displays cool visuals and receives user input text for model
 @app.route('/')
 @app.route('/index')
 def index():
-    
     # extract data needed for visuals
     # TODO: Below is an example - modify to extract data for your own visuals
     genre_counts = df.groupby('genre').count()['message']
     genre_names = list(genre_counts.index)
-    
+
+    cat_counts = df.drop(['id', 'message', 'original', 'genre'], 1).sum()
+    cat_names = list(cat_counts.index)
+
     # create visuals
     # TODO: Below is an example - modify to create your own visuals
     graphs = [
@@ -63,13 +84,31 @@ def index():
                     'title': "Genre"
                 }
             }
+        },
+        {
+            'data': [
+                Bar(
+                    x=cat_names,
+                    y=cat_counts
+                )
+            ],
+
+            'layout': {
+                'title': 'Distribution of Categories',
+                'yaxis': {
+                    'title': "Count"
+                },
+                'xaxis': {
+                    'title': "Categorie"
+                }
+            }
         }
     ]
-    
+
     # encode plotly graphs in JSON
     ids = ["graph-{}".format(i) for i, _ in enumerate(graphs)]
     graphJSON = json.dumps(graphs, cls=plotly.utils.PlotlyJSONEncoder)
-    
+
     # render web page with plotly graphs
     return render_template('master.html', ids=ids, graphJSON=graphJSON)
 
@@ -78,7 +117,7 @@ def index():
 @app.route('/go')
 def go():
     # save user input in query
-    query = request.args.get('query', '') 
+    query = request.args.get('query', '')
 
     # use model to predict classification for query
     classification_labels = model.predict([query])[0]
